@@ -1,12 +1,12 @@
 #!/usr/bin/python3
 
 """
-Copyright (c) 2022, 2023 Edmundo Carmona Antoranz
+Copyright (c) 2022-2024 Edmundo Carmona Antoranz
 Released under the terms of GPLv2
 
-This script can be used in cases when we want to _replay_
+This script can be used in cases when we want to _duplicate_
 revisions on top of another branch that has the same tree
-when the revisions we want to replay are not linear.
+when the revisions we want to duplicate are **not** linear.
 Look at this example:
 $ git checkout v2.35.0
 # create a revision that has the exact same tree as v2.35.0
@@ -37,17 +37,17 @@ Unmerged paths:
         both modified:   GIT-VERSION-GEN
         both modified:   RelNotes
 End of example
-Rebase is using the merge engine to replay all the revisions, for understandable reasons.
-`git-replay.py` would instead recreate all the original revisions on top of HEAD without
+Rebase is using the merge engine to duplicate all the revisions, for understandable reasons.
+`git-duplicate.py` would instead recreate all the original revisions on top of HEAD without
 running any actual merge.
 Technically speaking, the script will create new revisions using the same metadata from the
 original revisions, except that it would change the parent IDs and the committer.
 
 When you use this script, it won't move anything from the local repo, it will only
 create commits as requested and, when it is finished, it will write the commit ID of the
-tip of the resulting rebased/replayed branch, much the same way git-commit-tree behaves.
+tip of the resulting rebased/dupolicated branch, much the same way git-commit-tree behaves.
 
-$ ./git-replay.py HEAD v2.35.0 v2.36.0-rc0
+$ ./git-duplicate.py HEAD v2.35.0 v2.36.0-rc0
 It might not look like it but...
 I am working. Check CPU and disk usage.
 f0b7663aa1b6e009e27c185b89ad88f683d773aa
@@ -60,25 +60,25 @@ import argparse
 
 parser=argparse.ArgumentParser(
 	description=
-		'Replay revisions on top of other revisions.\n'
+		'Duplicate revisions on top of other revisions.\n'
 		'\n'
 		'Think of it as running:\n'
 		'git rebase --rebase-merges old-base tip --onto new-base\n'
 		'\n'
 		'When it finishes running, it will print the commit ID\n'
-		'of the tip of the rebased/replayed branch',
+		'of the tip of the rebased/duplicated branch',
 	formatter_class=argparse.RawTextHelpFormatter
 )
 
 parser.add_argument("--keep-committer", action='store_true',
 		     help="Keep the original committer from the revision")
 parser.add_argument('new_base', metavar='new-base', type=str,
-                    help='New base of revisions to replay on')
+                    help='New base of revisions to work on')
 parser.add_argument('old_base', metavar="old-base", type=str,
-		    help="Old base of revisions to replay from. "
+		    help="Old base of revisions to duplicate from. "
 			"This revision has the same tree as the new_base")
 parser.add_argument('tip', metavar="tip", type=str,
-		    help="Tip of revisions to replay.")
+		    help="Tip of revisions to duplicate.")
 parser.add_argument('--verbose', action='store_true',
 		    help="Show the equivalent commits.")
 args = parser.parse_args()
@@ -151,7 +151,7 @@ def git_load_revision_information(revision: str) -> None:
 		os.environ["GIT_COMMITTER_EMAIL"] = git_get_revision_value(revision, '%ce')
 		os.environ["GIT_COMMITTER_DATE"] = git_get_revision_value(revision, '%cD')
 
-def git_replay_revision(revision, parents):
+def git_duplicate_revision(revision, parents):
 	git_load_revision_information(revision)
 	ps = subprocess.Popen(("git", "show", "--quiet", "--pretty=%B", revision), stdout=subprocess.PIPE)
 	arguments = ["git", "commit-tree"]
@@ -178,12 +178,12 @@ if (new_base_tree != old_base_tree):
 	sys.stderr.flush()
 	raise Exception("The trees of the two base revisions is not the same")
 
-# let's get the list of revisions that will need to be replayed
+# let's get the list of revisions that will need to be duplicated
 exit_code, git_revisions, error = git_run(["log", "--pretty=%H", "^%s" % args.old_base, args.tip])
 if exit_code != 0:
 	sys.stderr.write(error)
 	sys.stderr.flush()
-	raise Exception("There was an error getting revisions to be replayed")
+	raise Exception("There was an error getting revisions to be duplicated")
 git_revisions=git_revisions.split("\n")
 
 revisions=dict()
@@ -196,9 +196,9 @@ for revision in git_revisions:
 # need to insert a mappin between the old base and the new base
 revisions[git_rev_parse(args.old_base)] = git_rev_parse(args.new_base)
 
-def replay(revision: str) -> str:
+def duplicate(revision: str) -> str:
 	"""
-	Replay a revision
+	Duplicate a revision
 	
 	Return the new oid of the revision
 	"""
@@ -209,10 +209,10 @@ def replay(revision: str) -> str:
 	parents=[]
 	for parent in orig_parents:
 		if parent in revisions:
-			# the revision had to be replayed
+			# the revision had to be duplicated
 			if revisions[parent] is None:
 				# the revision is _pending_ to be replyed
-				new_parent=replay(parent) # got the new id
+				new_parent=duplicate(parent) # got the new id
 				revisions[parent]=new_parent
 			parents.append(revisions[parent])
 		else:
@@ -220,7 +220,7 @@ def replay(revision: str) -> str:
 			parents.append(parent)
 	
 	# now we need to create the new revision
-	new_revision = git_replay_revision(revision, parents)
+	new_revision = git_duplicate_revision(revision, parents)
 	
 	if (args.verbose):
 		sys.stderr.write(f"{revision} -> {new_revision}\n")
@@ -229,5 +229,5 @@ def replay(revision: str) -> str:
 	return new_revision
 
 
-new_revision=replay(git_revisions[0])
+new_revision=duplicate(git_revisions[0])
 print(new_revision)

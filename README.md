@@ -1,36 +1,15 @@
-# IMPORTANT
-
-Since git 2.44 there is a
-[`git replay`](https://github.com/git/git/blob/3c2a3fdc388747b9eaf4a4a4f2035c1c9ddb26d0/Documentation/RelNotes/2.44.0.txt#L19)
-builtin and I do not want it to be confused with the script I am
-providing here _therefore_ I think it makes sense that I rename
-this project to something different so there is no confusion.
-
-I haven't picked up a name yet but I am leaving a note here so you
-know what my intent is at the moment (to be taken care of shortly).
-
-Once I pick up a name and setup the project there, I will adjust
-this `README` to point to the new location so people who used the
-links to **this** project that have been provided here or there can
-still find the new one.
-
-Thanks for reading... and perhaps using the project.
-
-Edmundo
-March 2nd, 2024
-
 # usage
 
-This script can be used in cases when we want to _replay_
+This script can be used in cases when we want to _duplicate_
 revisions on top of another branch that has the same tree
-when the revisions we want to replay are not linear.
+when the revisions we want to duplicate are not linear.
 Look at this example:
 
 ```
 $ git checkout v2.35.0
 # create a revision that has the exact same tree as v2.35.0
 $ git commit --amend --no-edit
-# Replay all revisions between v2.35.0 and v2.36-rc0
+# Duplicate all revisions between v2.35.0 and v2.36-rc0
 $ git rebase --onto HEAD v2.35.0 v2.36.0-rc0 --rebase-merges
 .
 .
@@ -57,8 +36,8 @@ Unmerged paths:
         both modified:   RelNotes
 ```
 
-Rebase is using the merge engine to replay all the revisions, for understandable reasons.
-`git-replay.py` would instead recreate all the original revisions on top of the desired
+Rebase is using the merge engine to duplicate all the revisions, for understandable reasons.
+`git-duplicate.py` would instead recreate all the original revisions on top of the desired
 point (doesn't have to be `HEAD`) without running any actual merge.
 
 Technically speaking, the script will create new revisions using the same metadata from the
@@ -66,10 +45,10 @@ original revisions, except that it would change the parent IDs and the committer
 
 When you use this script, it won't move anything from the local repo, it will only
 create commits as requested and, when it is finished, it will write the commit ID of the
-tip of the resulting rebased/replayed branch, much the same way git-commit-tree behaves.
+tip of the resulting rebased/duplicated branch, much the same way git-commit-tree behaves.
 
 ```
-$ ./git-replay.py HEAD v2.35.0 v2.36.0-rc0
+$ ./git-duplicate.py HEAD v2.35.0 v2.36.0-rc0
 It might not look like it but...
 I am working. Check CPU and disk usage.
 f0b7663aa1b6e009e27c185b89ad88f683d773aa
@@ -77,6 +56,6 @@ f0b7663aa1b6e009e27c185b89ad88f683d773aa
 
 # copyright/license
 
-Copyright (c) 2022, 2023 Edmundo Carmona Antoranz
+Copyright (c) 2022-2024 Edmundo Carmona Antoranz
 
 Released under the terms of GPLv2
