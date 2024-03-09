@@ -5,13 +5,13 @@ Copyright (c) 2022-2024 Edmundo Carmona Antoranz
 Released under the terms of GPLv2
 
 This script can be used in cases when we want to _duplicate_
-revisions on top of another branch that has the same tree
-when the revisions we want to duplicate are **not** linear.
+commits on top of another branch that has the same tree
+when the commits we want to duplicate are **not** linear.
 Look at this example:
 $ git checkout v2.35.0
-# create a revision that has the exact same tree as v2.35.0
+# create a commit that has the exact same tree as v2.35.0
 $ git commit --amend --no-edit
-# Replay all revisions between v2.35.0 and v2.36-rc0
+# Replay all commits between v2.35.0 and v2.36-rc0
 $ git rebase --onto HEAD v2.35.0 v2.36.0-rc0 --rebase-merges
 .
 .
@@ -38,14 +38,14 @@ Unmerged paths:
         both modified:   RelNotes
 End of example
 
-Rebase is using the merge engine to duplicate all the revisions, for understandable reasons.
-`git-duplicate.py` would instead recreate all the original revisions on top of HEAD without
+Rebase is using the merge engine to duplicate all the commits, for understandable reasons.
+`git-duplicate.py` would instead recreate all the original commits on top of HEAD without
 running any actual merge.
-Technically speaking, the script will create new revisions using the same metadata from the
-original revisions, except that it would change the parent IDs and the committer.
+Technically speaking, the script will create new commits using the same metadata from the
+original commits, except that it would change the parent IDs and the committer.
 
-Technically speaking, the script will create new revisions using the same metadata from the
-original revisions, except that it would change the parent IDs and the committer.
+Technically speaking, the script will create new commits using the same metadata from the
+original commits, except that it would change the parent IDs and the committer.
 
 When you use this script, it won't move any reference in the local repo, it will only
 create commits as requested and, when it is finished, it will write the commit ID of the
@@ -55,7 +55,7 @@ By default, it assumes you mean to rebase on top of `HEAD`. If that is not the c
 `--onto` to specify what should be the new base for the rebase.
 
 $ ./git-duplicate.py v2.35.0 v2.36.0-rc0
-Duplicating revisions (852/852)
+Duplicating commits (852/852)
 b05eb5765b3debfa6937b141c835b9eb9c098bf5
 
 TODO
@@ -66,7 +66,7 @@ import argparse
 
 parser=argparse.ArgumentParser(
 	description=
-		'Duplicate revisions on top of other revisions.\n'
+		'Duplicate commits on top of other commits.\n'
 		'\n'
 		'Think of it as running:\n'
 		'git rebase --rebase-merges old-base tip --onto new-base\n'
@@ -77,7 +77,7 @@ parser=argparse.ArgumentParser(
 )
 
 parser.add_argument("--keep-committer", action='store_true',
-		     help="Keep the original committer from the revision")
+		     help="Keep the original committer from the commit")
 parser.add_argument('--verbose', action='store_true',
 		    help="Show the equivalent commits.")
 parser.add_argument("--progress", action="store_true", default=False,
@@ -87,10 +87,10 @@ parser.add_argument("--no-progress", action="store_true", default=False,
 parser.add_argument("--onto", type=str,
 		    help="On top of what commit should the rebase be performed? Default: HEAD", default="HEAD")
 parser.add_argument('old_base', metavar="old-base", type=str,
-		    help="Old base of revisions to duplicate from. "
-			"This revision has the same tree as the new_base")
+		    help="Old base of commits to duplicate from. "
+			"This commit has the same tree as the new_base")
 parser.add_argument('tip', metavar="tip", type=str,
-		    help="Tip of revisions to duplicate.")
+		    help="Tip of commits to duplicate.")
 args = parser.parse_args()
 
 import os
@@ -123,21 +123,21 @@ def git_rev_parse(revish: str) -> str:
 		raise Exception(f"Could not run rev-parse of {revish}")
 	return remove_eol(stdout)
 
-def git_get_tree(revision: str) -> str:
+def git_get_tree(commit: str) -> str:
 	"""
-	Given a revision, get its tree oid
+	Given a commit, get its tree oid
 	"""
 	try:
-		return git_rev_parse("%s^{tree}" % revision)
+		return git_rev_parse("%s^{tree}" % commit)
 	except:
-		raise Exception("Could not find tree oid for revision %s" % revision)
+		raise Exception("Could not find tree oid for commit %s" % commit)
 
-def git_get_parents(revision: str) -> list[str]:
+def git_get_parents(commit: str) -> list[str]:
 	parents=[]
 	n=1
 	while True:
 		try:
-			parent = git_rev_parse("%s^%d" % (revision, n))
+			parent = git_rev_parse("%s^%d" % (commit, n))
 			parents.append(parent)
 		except:
 			# no more parents
@@ -145,37 +145,37 @@ def git_get_parents(revision: str) -> list[str]:
 		n+=1
 	return parents
 
-def git_get_revision_value(revision: str, value: str) -> str:
+def git_get_commit_value(commit: str, value: str) -> str:
 	"""
-	Get a value from a revision, using pretty format from log
+	Get a value from a commit, using pretty format from log
 	"""
-	exitcode, stdout, stderr = git_run(["show", "--quiet", "--pretty='%s'" % value, revision])
+	exitcode, stdout, stderr = git_run(["show", "--quiet", "--pretty='%s'" % value, commit])
 	if exitcode != 0:
-		raise Exception(f"Error getting value from revision {revision}: {stderr}")
+		raise Exception(f"Error getting value from commit {commit}: {stderr}")
 	return remove_eol(stdout) # ony the last eol is removed, in case it is multiline
 
-def git_load_revision_information(revision: str) -> None:
+def git_load_commit_information(commit: str) -> None:
 	"""
-	Load revision information as environment variables
+	Load commit information as environment variables
 	"""
 	global args
-	os.environ["GIT_AUTHOR_NAME"] = git_get_revision_value(revision, '%an')
-	os.environ["GIT_AUTHOR_EMAIL"] = git_get_revision_value(revision, '%ae')
-	os.environ["GIT_AUTHOR_DATE"] = git_get_revision_value(revision, '%aD')
+	os.environ["GIT_AUTHOR_NAME"] = git_get_commit_value(commit, '%an')
+	os.environ["GIT_AUTHOR_EMAIL"] = git_get_commit_value(commit, '%ae')
+	os.environ["GIT_AUTHOR_DATE"] = git_get_commit_value(commit, '%aD')
 	
-	# TODO the committer might be optionally kept from the revision
+	# TODO the committer might be optionally kept from the commit
 	if args.keep_committer:
-		os.environ["GIT_COMMITTER_NAME"] = git_get_revision_value(revision, '%cn')
-		os.environ["GIT_COMMITTER_EMAIL"] = git_get_revision_value(revision, '%ce')
-		os.environ["GIT_COMMITTER_DATE"] = git_get_revision_value(revision, '%cD')
+		os.environ["GIT_COMMITTER_NAME"] = git_get_commit_value(commit, '%cn')
+		os.environ["GIT_COMMITTER_EMAIL"] = git_get_commit_value(commit, '%ce')
+		os.environ["GIT_COMMITTER_DATE"] = git_get_commit_value(commit, '%cD')
 
-def git_duplicate_revision(revision, parents):
-	git_load_revision_information(revision)
-	ps = subprocess.Popen(("git", "show", "--quiet", "--pretty=%B", revision), stdout=subprocess.PIPE)
+def git_duplicate_commit(commit, parents):
+	git_load_commit_information(commit)
+	ps = subprocess.Popen(("git", "show", "--quiet", "--pretty=%B", commit), stdout=subprocess.PIPE)
 	arguments = ["git", "commit-tree"]
 	for parent in parents:
 		arguments.extend(["-p", parent])
-	arguments.append("%s^{tree}" % revision)
+	arguments.append("%s^{tree}" % commit)
 	output = subprocess.check_output(arguments, stdin=ps.stdout)
 	return remove_eol(output.decode())
 
@@ -188,65 +188,65 @@ if (onto_tree != old_base_tree):
 	sys.stderr.write(f"New base tree from {args.onto}: {onto_tree}\n")
 	sys.stderr.write(f"Old base tree from {args.old_base}: {old_base_tree}\n")
 	sys.stderr.flush()
-	raise Exception("The trees of the two base revisions is not the same")
+	raise Exception("The trees of the two base commits is not the same")
 
-# let's get the list of revisions that will need to be duplicated
-exit_code, git_revisions, error = git_run(["rev-list", f"{args.old_base}..{args.tip}"])
+# let's get the list of commits that will need to be duplicated
+exit_code, git_commits, error = git_run(["rev-list", f"{args.old_base}..{args.tip}"])
 if exit_code != 0:
 	sys.stderr.write(error)
 	sys.stderr.flush()
-	raise Exception("There was an error getting revisions to be duplicated")
-git_revisions=git_revisions.split("\n")
+	raise Exception("There was an error getting commits to be duplicated")
+git_commits=git_commits.split("\n")
 
-revisions=dict()
-for revision in git_revisions:
-	if len(revision) == 0:
+commits=dict()
+for commit in git_commits:
+	if len(commit) == 0:
 		# end of list
 		continue
-	revisions[revision] = None
+	commits[commit] = None
 
 # need to insert a mapping between the old base and the new base
-revisions[git_rev_parse(args.old_base)] = git_rev_parse(args.onto)
+commits[git_rev_parse(args.old_base)] = git_rev_parse(args.onto)
 
-def duplicate(revision: str, revision_count: int, total_revisions: int) -> (str, int):
+def duplicate(commit: str, commit_count: int, total_commits: int) -> (str, int):
 	"""
-	Duplicate a revision
+	Duplicate a commit
 	
-	Return the new oid of the revision
+	Return the new oid of the commit
 	"""
-	global revisions, args, PROGRESS
-	# get parents for said revision
-	orig_parents = git_get_parents(revision)
-	# get the mapped revisions for each parent
+	global commits, args, PROGRESS
+	# get parents for said commit
+	orig_parents = git_get_parents(commit)
+	# get the mapped commits for each parent
 	parents=[]
 	for parent in orig_parents:
-		if parent in revisions:
-			# the revision had to be duplicated
-			if revisions[parent] is None:
-				# the revision is _pending_ to be duplicated
-				new_parent, revision_count = duplicate(parent, revision_count, total_revisions) # got the new id
-				revisions[parent] = new_parent
-			parents.append(revisions[parent])
+		if parent in commits:
+			# the commit had to be duplicated
+			if commits[parent] is None:
+				# the commit is _pending_ to be duplicated
+				new_parent, commit_count = duplicate(parent, commit_count, total_commits) # got the new id
+				commits[parent] = new_parent
+			parents.append(commits[parent])
 		else:
-			# have to use the original parent revision
+			# have to use the original parent commit
 			parents.append(parent)
 	
-	# now we need to create the new revision
-	new_revision = git_duplicate_revision(revision, parents)
+	# now we need to create the new commit
+	new_commit = git_duplicate_commit(commit, parents)
 
-	revision_count += 1
+	commit_count += 1
 	if PROGRESS:
-		sys.stdout.write(f"\rDuplicating revisions ({revision_count}/{total_revisions})")
+		sys.stdout.write(f"\rDuplicating commits ({commit_count}/{total_commits})")
 		sys.stdout.flush()
 	
 	if (args.verbose):
-		sys.stderr.write(f"{revision} -> {new_revision}\n")
+		sys.stderr.write(f"{commit} -> {new_commit}\n")
 		sys.stderr.flush()
 	
-	return new_revision, revision_count
+	return new_commit, commit_count
 
-total_revisions = len(git_revisions) - 1 # there is a mapping between the bases
-new_revision, revisions_count = duplicate(git_revisions[0], 0, total_revisions)
+total_commits = len(git_commits) - 1 # there is a mapping between the bases
+new_commit, commits_count = duplicate(git_commits[0], 0, total_commits)
 if PROGRESS:
 	print()
-print(new_revision)
+print(new_commit)
