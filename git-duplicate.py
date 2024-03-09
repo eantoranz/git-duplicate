@@ -81,11 +81,23 @@ parser.add_argument('tip', metavar="tip", type=str,
 		    help="Tip of revisions to duplicate.")
 parser.add_argument('--verbose', action='store_true',
 		    help="Show the equivalent commits.")
+parser.add_argument("--progress", action="store_true", default=False,
+		    help="Enforce showing progress. Progress will be shown by default if working on a terminal.")
+parser.add_argument("--no-progress", action="store_true", default=False,
+		    help="Avoid showing progress")
 args = parser.parse_args()
 
 import os
 import subprocess
 import sys
+
+PROGRESS=None
+if args.progress:
+	PROGRESS=True
+elif args.no_progress:
+	PROGRESS=False
+else:
+	PROGRESS=sys.stdout.isatty()
 
 def remove_eol(line: str) -> str:
 	return line.rstrip("\n")
@@ -161,12 +173,6 @@ def git_duplicate_revision(revision, parents):
 	output = subprocess.check_output(arguments, stdin=ps.stdout)
 	return remove_eol(output.decode())
 
-# main code
-if not args.verbose:
-	sys.stderr.write("It might not look like it but...\n")
-	sys.stderr.write("I am working. Check CPU and disk usage.\n")
-	sys.stderr.flush()
-
 # let's compare the trees of the old-tip and the new-tip
 
 new_base_tree=git_get_tree(args.new_base)
@@ -179,7 +185,7 @@ if (new_base_tree != old_base_tree):
 	raise Exception("The trees of the two base revisions is not the same")
 
 # let's get the list of revisions that will need to be duplicated
-exit_code, git_revisions, error = git_run(["log", "--pretty=%H", "^%s" % args.old_base, args.tip])
+exit_code, git_revisions, error = git_run(["rev-list", f"{args.old_base}..{args.tip}"])
 if exit_code != 0:
 	sys.stderr.write(error)
 	sys.stderr.flush()
@@ -193,27 +199,27 @@ for revision in git_revisions:
 		continue
 	revisions[revision] = None
 
-# need to insert a mappin between the old base and the new base
+# need to insert a mapping between the old base and the new base
 revisions[git_rev_parse(args.old_base)] = git_rev_parse(args.new_base)
 
-def duplicate(revision: str) -> str:
+def duplicate(revision: str, revision_count: int, total_revisions: int) -> (str, int):
 	"""
 	Duplicate a revision
 	
 	Return the new oid of the revision
 	"""
-	global revisions, args
+	global revisions, args, PROGRESS
 	# get parents for said revision
-	orig_parents=git_get_parents(revision)
+	orig_parents = git_get_parents(revision)
 	# get the mapped revisions for each parent
 	parents=[]
 	for parent in orig_parents:
 		if parent in revisions:
 			# the revision had to be duplicated
 			if revisions[parent] is None:
-				# the revision is _pending_ to be replyed
-				new_parent=duplicate(parent) # got the new id
-				revisions[parent]=new_parent
+				# the revision is _pending_ to be duplicated
+				new_parent, revision_count = duplicate(parent, revision_count, total_revisions) # got the new id
+				revisions[parent] = new_parent
 			parents.append(revisions[parent])
 		else:
 			# have to use the original parent revision
@@ -221,13 +227,20 @@ def duplicate(revision: str) -> str:
 	
 	# now we need to create the new revision
 	new_revision = git_duplicate_revision(revision, parents)
+
+	revision_count += 1
+	if PROGRESS:
+		sys.stdout.write(f"\rDuplicating revisions ({revision_count}/{total_revisions})")
+		sys.stdout.flush()
 	
 	if (args.verbose):
 		sys.stderr.write(f"{revision} -> {new_revision}\n")
 		sys.stderr.flush()
 	
-	return new_revision
+	return new_revision, revision_count
 
-
-new_revision=duplicate(git_revisions[0])
+total_revisions = len(git_revisions) - 1 # there is a mapping between the bases
+new_revision, revisions_count = duplicate(git_revisions[0], 0, total_revisions)
+if PROGRESS:
+	print()
 print(new_revision)
