@@ -37,20 +37,26 @@ Unmerged paths:
         both modified:   GIT-VERSION-GEN
         both modified:   RelNotes
 End of example
+
 Rebase is using the merge engine to duplicate all the revisions, for understandable reasons.
 `git-duplicate.py` would instead recreate all the original revisions on top of HEAD without
 running any actual merge.
 Technically speaking, the script will create new revisions using the same metadata from the
 original revisions, except that it would change the parent IDs and the committer.
 
-When you use this script, it won't move anything from the local repo, it will only
-create commits as requested and, when it is finished, it will write the commit ID of the
-tip of the resulting rebased/dupolicated branch, much the same way git-commit-tree behaves.
+Technically speaking, the script will create new revisions using the same metadata from the
+original revisions, except that it would change the parent IDs and the committer.
 
-$ ./git-duplicate.py HEAD v2.35.0 v2.36.0-rc0
-It might not look like it but...
-I am working. Check CPU and disk usage.
-f0b7663aa1b6e009e27c185b89ad88f683d773aa
+When you use this script, it won't move any reference in the local repo, it will only
+create commits as requested and, when it is finished, it will write the commit ID of the
+tip of the resulting rebased/duplicated branch, much the same way git-commit-tree behaves.
+
+By default, it assumes you mean to rebase on top of `HEAD`. If that is not the case, use
+`--onto` to specify what should be the new base for the rebase.
+
+$ ./git-duplicate.py v2.35.0 v2.36.0-rc0
+Duplicating revisions (852/852)
+b05eb5765b3debfa6937b141c835b9eb9c098bf5
 
 TODO
  - careful with tags
@@ -72,19 +78,19 @@ parser=argparse.ArgumentParser(
 
 parser.add_argument("--keep-committer", action='store_true',
 		     help="Keep the original committer from the revision")
-parser.add_argument('new_base', metavar='new-base', type=str,
-                    help='New base of revisions to work on')
-parser.add_argument('old_base', metavar="old-base", type=str,
-		    help="Old base of revisions to duplicate from. "
-			"This revision has the same tree as the new_base")
-parser.add_argument('tip', metavar="tip", type=str,
-		    help="Tip of revisions to duplicate.")
 parser.add_argument('--verbose', action='store_true',
 		    help="Show the equivalent commits.")
 parser.add_argument("--progress", action="store_true", default=False,
 		    help="Enforce showing progress. Progress will be shown by default if working on a terminal.")
 parser.add_argument("--no-progress", action="store_true", default=False,
 		    help="Avoid showing progress")
+parser.add_argument("--onto", type=str,
+		    help="On top of what commit should the rebase be performed? Default: HEAD", default="HEAD")
+parser.add_argument('old_base', metavar="old-base", type=str,
+		    help="Old base of revisions to duplicate from. "
+			"This revision has the same tree as the new_base")
+parser.add_argument('tip', metavar="tip", type=str,
+		    help="Tip of revisions to duplicate.")
 args = parser.parse_args()
 
 import os
@@ -175,12 +181,12 @@ def git_duplicate_revision(revision, parents):
 
 # let's compare the trees of the old-tip and the new-tip
 
-new_base_tree=git_get_tree(args.new_base)
+onto_tree=git_get_tree(args.onto)
 old_base_tree=git_get_tree(args.old_base)
 
-if (new_base_tree != old_base_tree):
-	sys.stderr.write("New base tree: %s\n" % new_base_tree)
-	sys.stderr.write("Old base tree: %s\n" % old_base_tree)
+if (onto_tree != old_base_tree):
+	sys.stderr.write(f"New base tree from {args.onto}: {onto_tree}\n")
+	sys.stderr.write(f"Old base tree from {args.old_base}: {old_base_tree}\n")
 	sys.stderr.flush()
 	raise Exception("The trees of the two base revisions is not the same")
 
@@ -200,7 +206,7 @@ for revision in git_revisions:
 	revisions[revision] = None
 
 # need to insert a mapping between the old base and the new base
-revisions[git_rev_parse(args.old_base)] = git_rev_parse(args.new_base)
+revisions[git_rev_parse(args.old_base)] = git_rev_parse(args.onto)
 
 def duplicate(revision: str, revision_count: int, total_revisions: int) -> (str, int):
 	"""
