@@ -128,16 +128,16 @@ def git_get_tree(commit: str) -> str:
 	Given a commit, get its tree oid
 	"""
 	try:
-		return git_rev_parse("%s^{tree}" % commit)
+		return git_rev_parse(commit + "^{tree}")
 	except:
-		raise Exception("Could not find tree oid for commit %s" % commit)
+		raise Exception(f"Could not find tree oid for commit {commit}")
 
 def git_get_parents(commit: str) -> list[str]:
 	parents=[]
 	n=1
 	while True:
 		try:
-			parent = git_rev_parse("%s^%d" % (commit, n))
+			parent = git_rev_parse(f"{commit}^{n}")
 			parents.append(parent)
 		except:
 			# no more parents
@@ -149,7 +149,7 @@ def git_get_commit_value(commit: str, value: str) -> str:
 	"""
 	Get a value from a commit, using pretty format from log
 	"""
-	exitcode, stdout, stderr = git_run(["show", "--quiet", "--pretty='%s'" % value, commit])
+	exitcode, stdout, stderr = git_run(["show", "--quiet", f"--pretty='{value}'", commit])
 	if exitcode != 0:
 		raise Exception(f"Error getting value from commit {commit}: {stderr}")
 	return remove_eol(stdout) # ony the last eol is removed, in case it is multiline
@@ -175,7 +175,7 @@ def git_duplicate_commit(commit, parents):
 	arguments = ["git", "commit-tree"]
 	for parent in parents:
 		arguments.extend(["-p", parent])
-	arguments.append("%s^{tree}" % commit)
+	arguments.append(commit + "^{tree}")
 	output = subprocess.check_output(arguments, stdin=ps.stdout)
 	return remove_eol(output.decode())
 
