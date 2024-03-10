@@ -86,6 +86,8 @@ parser.add_argument("--no-progress", action="store_true", default=False,
 		    help="Avoid showing progress")
 parser.add_argument("--onto", type=str,
 		    help="On top of what commit should the rebase be performed? Default: HEAD", default="HEAD")
+parser.add_argument("--verify", action="store_true", default=False,
+		    help="Verify that every commit actually matches what is expected (trees and parents match between original and duplicate commit)")
 parser.add_argument('old_base', metavar="old-base", type=str,
 		    help="Old base of commits to duplicate from. "
 			"This commit has the same tree as the new_base")
@@ -104,6 +106,7 @@ TOTAL_COMMITS = 0 # total of commits that will be duplicated
 COMMITS_MAP: dict[str, str]=dict()
 
 VERBOSE=args.verbose
+VERIFY=args.verify
 PROGRESS = None
 if args.progress:
 	PROGRESS = True
@@ -186,6 +189,79 @@ def git_duplicate_commit(commit, parents):
 	output = subprocess.check_output(arguments, stdin=ps.stdout)
 	return remove_eol(output.decode())
 
+def verify_commit(old_commit: str, new_commit: str) -> None:
+	"""
+	Make sure that the new commit matches what is expected from it.
+	
+	- trees are the same between old and new commit
+	- parents match (there might be links to parents that are not to be processed)
+	
+	more things could be checked for thoroughness' sake (author info, message, etc)
+	but won't consider that for the time being
+	"""
+
+	global GIT_COMMITS, COMMITS_MAP
+
+	error = False
+
+	old_tree = git_get_tree(old_commit)
+	old_parents = git_get_parents(old_commit)
+	new_tree = git_get_tree(new_commit)
+	new_parents = git_get_parents(new_commit)
+
+	# trees
+	if old_tree != new_tree:
+		sys.stderr.write(f"BUG: trees do not match between old commit ({old_commit}) and new commit ({new_commit}):\n")
+		sys.stderr.write(f"New commit's tree should be {old_tree} as in the old commit but got {new_tree} instead.\n")
+		sys.stderr.write("\n")
+		error = True
+
+	# parents number
+	if len(old_parents) != len(new_parents):
+		sys.stderr.write(f"BUG: Number of parents is not the same between old commit ({old_commit}) and new commit ({new_commit}):\n")
+		sys.stderr.write(f"New commit has {len(old_parents)} parents: {old_parents}.\n")
+		sys.stderr.write(f"Old commit has {len(new_parents)} parents: {new_parents}.\n")
+		sys.stderr.write("\n")
+		error = True
+
+	# do the parents match each other?
+	for old_parent, new_parent in zip(old_parents, new_parents):
+		if old_parent in GIT_COMMITS:
+			# there has to be a mapping to this commit and it has to match the new parent
+			if mapped_parent := COMMITS_MAP.get(old_parent) != new_parent:
+				sys.stderr.write(f"BUG: inconsistency detected for a parent of new commit {new_commit}.:\n")
+				sys.stderr.write(f"Old commit {old_commit} has {old_parent} as a parent.\n")
+				sys.stderr.write(f"This old commit is mapped to commit {mapped_commit} during the duplication process.\n")
+				sys.stderr.write(f"This value does not match the expected parent of the new commit. Parent: {new_parent}.\n")
+				sys.stderr.write("\n")
+				error = True
+
+			# trees have to match between the parents
+			old_parent_tree = git_get_tree(old_parent)
+			new_parent_tree = git_get_tree(new_parent)
+			
+			if old_parent_tree != new_parent_tree:
+				sys.stderr.write(f"BUG: inconsistency detected for a parent of new commit {new_commit}.:\n")
+				sys.stderr.write(f"Old commit {old_commit} has {old_parent} as a parent and this parent has tree {old_parent_tree}.\n")
+				sys.stderr.write(f"New commit {new_commit} has {new_parent} as a parent and this parent has tree {new_parent_tree}.\n")
+				sys.stderr.write(f"The trees must be the same. Looks like the script messed up choosing this (new) parent while duplicating commit {old_commit}.\n")
+				sys.stderr.write("\n")
+				error = True
+		else:
+			if old_parent != new_parent:
+				sys.stderr.write(f"BUG: inconsistency detected for a parent of new commit {new_commit}.:\n")
+				sys.stderr.write(f"Old commit {old_commit} is not to be duplicated so it has to be included as a parent of the new commit.\n")
+				sys.stderr.write(f"We are finding commit {new_parent} as a parent instead.\n")
+				sys.stderr.write(f"Looks like the script messed up choosing the old commit's parent as a parent of the new commit while duplicating commit {old_commit}.\n")
+				sys.stderr.write("\n")
+				error = True
+
+
+	if error:
+		sys.stderr.write("Please, report this to git-duplicate's maintainer if possible.\n")
+		sys.stderr.flush()
+		raise Exception(f"There are inconsistencies between old commit {old_commit} and {new_commit}. Check stderr output for information.")
+
 # let's compare the trees of the old-tip and the new-tip
 
 onto_tree=git_get_tree(args.onto)
@@ -218,13 +294,18 @@ def duplicate(commit: str, commit_count: int) -> (str, int):
 	
 	Return the new oid of the commit
 	"""
-	global COMMITS_MAP, TOTAL_COMMITS, VERBOSE, PROGRESS
+	global COMMITS_MAP, TOTAL_COMMITS, VERBOSE, PROGRESS, VERIFY
+	if new_commit := COMMITS_MAP[commit]:
+		if new_commit != "pending":
+			# already duplicated
+			return new_commit, commit_count
+
 	# get parents for said commit
 	orig_parents = git_get_parents(commit)
 	# get the mapped commits for each parent
-	parents=[]
+	new_parents = []
 	for orig_parent in orig_parents:
-		if new_parent := COMMITS_MAP.get(orig_parent, False):
+		if new_parent := COMMITS_MAP.get(orig_parent):
 			# the commit has to be duplicated
 			if new_parent == "pending":
 				# the commit is _pending_ to be duplicated
@@ -233,14 +314,18 @@ def duplicate(commit: str, commit_count: int) -> (str, int):
 		else:
 			# have to use the original parent commit
 			new_parent = orig_parent
-		parents.append(new_parent)
-	
-	# now we need to create the new commit
-	new_commit = git_duplicate_commit(commit, parents)
+		new_parents.append(new_parent)
 
+	# now we need to create the new commit
+	new_commit = git_duplicate_commit(commit, new_parents)
+	COMMITS_MAP[commit] = new_commit
 	commit_count += 1
+
+	if VERIFY:
+		verify_commit(commit, new_commit)
+
 	if PROGRESS:
-		sys.stdout.write(f"\rDuplicating commits ({commit_count}/{TOTAL_COMMITS})")
+		sys.stdout.write(f"\rDuplicating commits... ({commit_count}/{TOTAL_COMMITS})\r")
 		sys.stdout.flush()
 	
 	if VERBOSE:
@@ -249,7 +334,9 @@ def duplicate(commit: str, commit_count: int) -> (str, int):
 	
 	return new_commit, commit_count
 
-new_commit, commits_count = duplicate(GIT_COMMITS[0], 0)
+commit_count = 0
+for orig_commit in reversed(GIT_COMMITS):
+	_, commit_count = duplicate(orig_commit, commit_count)
 if PROGRESS:
 	print()
-print(new_commit)
+print(COMMITS_MAP[GIT_COMMITS[0]])
