@@ -97,11 +97,18 @@ import os
 import subprocess
 import sys
 
-PROGRESS=None
+# lis of commits to be duplicated
+GIT_COMMITS: list[str] | None = None
+TOTAL_COMMITS = 0 # total of commits that will be duplicated
+# map old commit ids -> new commit ids
+COMMITS_MAP: dict[str, str]=dict()
+
+VERBOSE=args.verbose
+PROGRESS = None
 if args.progress:
-	PROGRESS=True
+	PROGRESS = True
 elif args.no_progress:
-	PROGRESS=False
+	PROGRESS = False
 else:
 	PROGRESS=sys.stdout.isatty()
 
@@ -191,62 +198,58 @@ if (onto_tree != old_base_tree):
 	raise Exception("The trees of the two base commits is not the same")
 
 # let's get the list of commits that will need to be duplicated
-exit_code, git_commits, error = git_run(["rev-list", f"{args.old_base}..{args.tip}"])
+exit_code, raw_git_commits, error = git_run(["rev-list", f"{args.old_base}..{args.tip}"])
 if exit_code != 0:
 	sys.stderr.write(error)
 	sys.stderr.flush()
 	raise Exception("There was an error getting commits to be duplicated")
-git_commits=git_commits.split("\n")
+GIT_COMMITS = list(commit_id for commit_id in raw_git_commits.split("\n") if len(commit_id) > 0)
+TOTAL_COMMITS = len(GIT_COMMITS)
 
-commits=dict()
-for commit in git_commits:
-	if len(commit) == 0:
-		# end of list
-		continue
-	commits[commit] = None
+for commit in GIT_COMMITS:
+	COMMITS_MAP[commit] = "pending" # a value that we will never see as a commit id
 
 # need to insert a mapping between the old base and the new base
-commits[git_rev_parse(args.old_base)] = git_rev_parse(args.onto)
+COMMITS_MAP[git_rev_parse(args.old_base)] = git_rev_parse(args.onto)
 
-def duplicate(commit: str, commit_count: int, total_commits: int) -> (str, int):
+def duplicate(commit: str, commit_count: int) -> (str, int):
 	"""
 	Duplicate a commit
 	
 	Return the new oid of the commit
 	"""
-	global commits, args, PROGRESS
+	global COMMITS_MAP, TOTAL_COMMITS, VERBOSE, PROGRESS
 	# get parents for said commit
 	orig_parents = git_get_parents(commit)
 	# get the mapped commits for each parent
 	parents=[]
-	for parent in orig_parents:
-		if parent in commits:
-			# the commit had to be duplicated
-			if commits[parent] is None:
+	for orig_parent in orig_parents:
+		if new_parent := COMMITS_MAP.get(orig_parent, False):
+			# the commit has to be duplicated
+			if new_parent == "pending":
 				# the commit is _pending_ to be duplicated
-				new_parent, commit_count = duplicate(parent, commit_count, total_commits) # got the new id
-				commits[parent] = new_parent
-			parents.append(commits[parent])
+				new_parent, commit_count = duplicate(orig_parent, commit_count) # got the new id
+				COMMITS_MAP[orig_parent] = new_parent
 		else:
 			# have to use the original parent commit
-			parents.append(parent)
+			new_parent = orig_parent
+		parents.append(new_parent)
 	
 	# now we need to create the new commit
 	new_commit = git_duplicate_commit(commit, parents)
 
 	commit_count += 1
 	if PROGRESS:
-		sys.stdout.write(f"\rDuplicating commits ({commit_count}/{total_commits})")
+		sys.stdout.write(f"\rDuplicating commits ({commit_count}/{TOTAL_COMMITS})")
 		sys.stdout.flush()
 	
-	if (args.verbose):
+	if VERBOSE:
 		sys.stderr.write(f"{commit} -> {new_commit}\n")
 		sys.stderr.flush()
 	
 	return new_commit, commit_count
 
-total_commits = len(git_commits) - 1 # there is a mapping between the bases
-new_commit, commits_count = duplicate(git_commits[0], 0, total_commits)
+new_commit, commits_count = duplicate(GIT_COMMITS[0], 0)
 if PROGRESS:
 	print()
 print(new_commit)
