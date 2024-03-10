@@ -60,6 +60,7 @@ b05eb5765b3debfa6937b141c835b9eb9c098bf5
 
 TODO
  - careful with tags
+ - allow complete disconnection from original tree
 """
 
 import argparse
