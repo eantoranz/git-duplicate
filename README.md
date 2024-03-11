@@ -58,21 +58,149 @@ b05eb5765b3debfa6937b141c835b9eb9c098bf5
 
 # use cases
 
-## squashing the first N commits from history of a branch
+## Rewording a commit in a non-linear branch
+
+When needing to amend a commit, what is usually done is an *interactive rebase*
+choosing to reword a given commit. In linear branches, there's no much hassle.
+Unfortunately, on **non-liear** branches `--rebase-merges` will need to be used
+and, even though trees are exactly the same, git won't consider them and will
+run a full merge operation on them. If there had been conflicts in the original
+commits, facing those conflicts again will be unavoidable.
+
+`git-duplicate.py` can help in this situacion as it will replicate
+the original history on top of the new commit coming out of ament.
+
+Suppose you are on branch `some-branch` and you want to reword commit `X`.
+
+```
+* aaae (some-branch)
+|\
+* \ aaad
+|\ \
+| * | aaac
+| * | aaab
+* | | aaaa
+* | | aaa9
+|/ /
+* / aaa8
+* | aaa7
+* | aaa6 (X)
+|\|
+| * aaa5
+| * aaa4
+* | aaa3
+* | aaa2
+|/
+* aaa1
+* aaa0
+```
+
+Use the following sequence of commands:
+```
+git checkout X
+git commit --amend -m "New message for the commit"
+./git-duplicate X some-branch
+```
+
+Assuming the resulting commit is `bbb8`, that will create the
+following history for that commit:
+```
+* bbb8
+|\
+* \ bbb7
+|\ \
+| * | bbb6
+| * | bbb5
+* | | bbb4
+* | | bbb3
+|/ /
+* / bbb2
+* | bbb1
+* | bbb0 New message for the commit (HEAD)
+|\|
+| * aaa5
+| * aaa4
+* | aaa3
+* | aaa2
+|/
+* aaa1
+* aaa0
+```
+
+## squash a number of commits and then reapply all following commits
+
+Suppose you start from the following chart:
+```
+* aaae (some-branch)
+|\
+* \ aaad
+|\ \
+| * | aaac
+| * | aaab
+* | | aaaa
+* | | aaa9
+|/ /
+* / aaa8
+* | aaa7
+* | aaa6
+|\|
+| * aaa5
+| * aaa4
+* | aaa3
+* | aaa2
+|/
+* aaa1
+* aaa0
+```
+
+Let's squash the changes in `aaa6..aaa8` into a single commit, then reapply all changes
+in `aaa8..aaae` on top of the resulting commit. Use the following recipe:
+
+```
+git checkout aaa6
+git restore --source aaa8 --worktree --index -- .
+git commit -m "A new commit to get changes in aaa6..aaa8"
+./git-duplicate.sh aaa6 some-branch
+```
+
+Assuming the resulting commit is `bbb5`, the resulting history
+for that commit would be:
+```
+* bbb5 (some-branch)
+|\
+* \ bbb4
+|\ \
+| * | aaac
+| * | bbb3
+* | | bbb2
+* | | bbb1
+|/ /
+* / bbb0 "A new commit to get changes in aaa6..aaa8" (HEAD)
+|\|
+| * aaa5
+| * aaa4
+* | aaa3
+* | aaa2
+|/
+* aaa1
+* aaa0
+```
+
+## Start branch history from a given commit
 
 In cases when you want to start your history of branch `some-brach` from commit `X` so that previous
 commits do not show up in history:
 
 ```
-* aaad (some-branch)
-* aaac
+* aaae (some-branch)
+* aaab
 |\
+| * aaac
 | * aaab
-| * aaaa
+* | aaaa
 * | aaa9
-* | aaa8
 |/
-*
+* aaa8
 * aaa7
 * aaa6 (X)
 |\
@@ -90,82 +218,28 @@ This can be done like this:
 ```
 git checkout --orphan new-branch X
 git commit -m "Restarting history of the project"
-./git-duplicate.py X some-branch
+./git-duplicate.py --isolate X some-branch
 ```
 
-Assuming that the resulting commit id is `bbb7`, then the chart for that commit's history would be:
+Assuming that the resulting commit id is `bbb8`, then the chart for that commit's history would be:
 
 This will produce this chart:
 ```
+* bbb8
 * bbb7
-* bbb6
 |\
+| * bbb6
 | * bbb5
-| * bbb4
+* | bbb4
 * | bbb3
-* | bbb2
 |/
-*
+* bbb2
 * bbb1
-* bbb0 (new-branch)
+* bbb0 (new-branch -> HEAD)
 ```
 
-**Note**: I am using _sequences_ of commit ids just to have something there. `git` does not produce ids in sequence.
-
-**Caveat**:
-At the moment, `git-duplicate.py` will _directly_ link to commits from the
-_original_ tree if a parent of a commit that is being duplicated is not in the list of
-commits to be duplicated. Modifying the previous chart, we start with this:
-
-```
-*  aaad (some-branch)
-|\
-* \ aaac
-|\ \
-| * | aaab
-| * | aaaa
-* | | aaa9
-* | | aaa8
-|/ /
-* /
-* | aaa7
-* | aaa6 (X)
-|\|
-| * aaa5
-| * aaa4
-* | aaa3
-* | aaa2
-|/
-* aaa1
-* aaa0
-```
-
-Following the same sequence of commands, because `aaad` has `aaa5` as a parent which is not a commit that should be duplicated,
-you would see a link coming from `aaa5` as a parent of the duplicate of `aaad`.
-
-```
-* bbb7
-|\
-* \ bbb6
-|\ \
-| * | bbb5
-| * | bbb4
-* | | bbb3
-* | | bbb2
-|/ /
-* /
-* | bbb1
-* | bbb0 (new-branch)
-  |
- /
-* aaa5
-* aaa4
-* aaa1
-* aaa0
-```
-It can be seen how the original commits in the history of `aaa5` are still linked to the resulting tree.
-
-An option will be added to the script soon to avoid this from happening.
+Using `--isolate` makes sure to avoid linking commits outside of the commits
+that are being duplicated as parents.
 
 # copyright/license
 
