@@ -56,6 +56,117 @@ Duplicating commits (852/852)
 b05eb5765b3debfa6937b141c835b9eb9c098bf5
 ```
 
+# use cases
+
+## squashing the first N commits from history of a branch
+
+In cases when you want to start your history of branch `some-brach` from commit `X` so that previous
+commits do not show up in history:
+
+```
+* aaad (some-branch)
+* aaac
+|\
+| * aaab
+| * aaaa
+* | aaa9
+* | aaa8
+|/
+*
+* aaa7
+* aaa6 (X)
+|\
+| * aaa5
+| * aaa4
+* | aaa3
+* | aaa2
+|/
+* aaa1
+* aaa0
+```
+
+This can be done like this:
+
+```
+git checkout --orphan new-branch X
+git commit -m "Restarting history of the project"
+./git-duplicate.py X some-branch
+```
+
+Assuming that the resulting commit id is `bbb7`, then the chart for that commit's history would be:
+
+This will produce this chart:
+```
+* bbb7
+* bbb6
+|\
+| * bbb5
+| * bbb4
+* | bbb3
+* | bbb2
+|/
+*
+* bbb1
+* bbb0 (new-branch)
+```
+
+**Note**: I am using _sequences_ of commit ids just to have something there. `git` does not produce ids in sequence.
+
+**Caveat**:
+At the moment, `git-duplicate.py` will _directly_ link to commits from the
+_original_ tree if a parent of a commit that is being duplicated is not in the list of
+commits to be duplicated. Modifying the previous chart, we start with this:
+
+```
+*  aaad (some-branch)
+|\
+* \ aaac
+|\ \
+| * | aaab
+| * | aaaa
+* | | aaa9
+* | | aaa8
+|/ /
+* /
+* | aaa7
+* | aaa6 (X)
+|\|
+| * aaa5
+| * aaa4
+* | aaa3
+* | aaa2
+|/
+* aaa1
+* aaa0
+```
+
+Following the same sequence of commands, because `aaad` has `aaa5` as a parent which is not a commit that should be duplicated,
+you would see a link coming from `aaa5` as a parent of the duplicate of `aaad`.
+
+```
+* bbb7
+|\
+* \ bbb6
+|\ \
+| * | bbb5
+| * | bbb4
+* | | bbb3
+* | | bbb2
+|/ /
+* /
+* | bbb1
+* | bbb0 (new-branch)
+  |
+ /
+* aaa5
+* aaa4
+* aaa1
+* aaa0
+```
+It can be seen how the original commits in the history of `aaa5` are still linked to the resulting tree.
+
+An option will be added to the script soon to avoid this from happening.
+
 # copyright/license
 
 Copyright (c) 2022-2024 Edmundo Carmona Antoranz
