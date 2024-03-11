@@ -7,7 +7,8 @@ Released under the terms of GPLv2
 This script can be used in cases when we want to _duplicate_
 commits on top of another branch that has the same tree
 when the commits we want to duplicate are **not** linear.
-Look at this example:
+Look at this example from git project itself:
+
 $ git checkout v2.35.0
 # create a commit that has the exact same tree as v2.35.0
 $ git commit --amend --no-edit

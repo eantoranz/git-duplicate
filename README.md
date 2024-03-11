@@ -3,7 +3,8 @@
 This script can be used in cases when we want to _duplicate_
 commits on top of another branch that has the same tree
 when the commits we want to duplicate are not linear.
-Look at this example:
+Look at this example using tags from [git project](https://github.com/git/git)
+itself:
 
 ```
 $ git checkout v2.35.0
