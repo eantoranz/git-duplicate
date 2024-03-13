@@ -102,9 +102,21 @@ import os
 import subprocess
 import sys
 
+USE_PYGIT2 = False
+try:
+	import pygit2
+	USE_PYGIT2 = True
+except ModuleNotFoundError as e:
+	if args.verbose:
+		print("Could not load pygit2 module. Using git binary as a fallback.")
+		sys.stdout.flush()
+
 class GitBackend:
 
 	def rev_parse(self, revish: str) -> str:
+		pass
+
+	def rev_list(self, revish_from: str, revish_to: str) -> list[str]:
 		pass
 
 	def get_tree(self, commit: str) -> str:
@@ -115,6 +127,42 @@ class GitBackend:
 
 	def duplicate_commit(self, commit: str, parents: list[str]) -> str:
 		pass
+
+
+class PyGit2Backend(GitBackend):
+
+	def __init__(self):
+		self.repo = pygit2.Repository("./")
+		config = self.repo.config
+		self.signature = pygit2.Signature(
+			config.__getitem__("user.name"),
+			config.__getitem__("user.email"),
+		)
+
+	def rev_parse(self, revish: str) -> str:
+		return str(self.repo.revparse_single(revish).oid)
+
+	def rev_list(self, revish_from: str, revish_to: str) -> list[str]:
+		from_rev = self.repo.revparse_single(revish_from).oid
+		to_rev = self.repo.revparse_single(revish_to).oid
+		walker = self.repo.walk(to_rev)
+		walker.hide(from_rev)
+		return list(str(commit.oid) for commit in walker)
+
+	def get_tree(self, commit: str) -> str:
+		return str(self.repo.revparse_single(commit + '^{tree}').oid)
+
+	def get_parents(self, commit: str) -> list[str]:
+		commit_obj = self.repo.revparse_single(commit)
+		return list(str(parent.oid) for parent in commit_obj.parents)
+
+	def duplicate_commit(self, commit: str, parents: list[str]) -> str:
+		orig_commit = self.repo.revparse_single(commit)
+		parent_commits = list(self.repo.revparse_single(parent).oid for parent in parents)
+		new_commit = self.repo.create_commit(
+			None, orig_commit.author, self.signature, orig_commit.message, orig_commit.tree.oid, parents
+		)
+		return str(new_commit)
 
 class GitCommandBackend(GitBackend):
 
@@ -201,7 +249,21 @@ class GitCommandBackend(GitBackend):
 		return GitCommandBackend.remove_eol(output.decode())
 
 
-GIT_BACKEND: GitBackend | None = GitCommandBackend()
+VERBOSE = args.verbose
+VERIFY = args.verify
+ISOLATE = args.isolate
+PROGRESS: bool | None = None\
+
+# selecting the backend that will be used
+GIT_BACKEND: GitBackend = GitCommandBackend()
+if USE_PYGIT2:
+	try:
+		GIT_BACKEND = PyGit2Backend()
+	except Exception as e:
+		if VERBOSE:
+			print(f"There was an error trying to open the repository with pygit2: {e}")
+			print("Falling back to using git binary")
+
 # list of commits to be duplicated
 GIT_COMMITS: list[str] | None = None
 TOTAL_COMMITS = 0 # total of commits that will be duplicated
@@ -209,12 +271,6 @@ TOTAL_COMMITS = 0 # total of commits that will be duplicated
 COMMITS_MAP: dict[str, str]=dict()
 OLD_ROOT_COMMIT: str | None = None
 NEW_ROOT_COMMIT: str | None = None
-
-VERBOSE = args.verbose
-VERIFY = args.verify
-ISOLATE = args.isolate
-PROGRESS: bool | None = None
-
 
 
 def verify_commit(old_commit: str, new_commit: str) -> None:
