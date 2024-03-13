@@ -91,6 +91,8 @@ parser.add_argument("--isolate", action="store_true", default=False,
 		    help="Only consider commits that will be duplicated as parents.")
 parser.add_argument("--verify", action="store_true", default=False,
 		    help="Verify that every commit actually matches what is expected (trees and parents match between original and duplicate commit)")
+parser.add_argument("--no-pygit2", action="store_true", default=False,
+		    help="Do not attempt to use pygit2 and forcibly use git binary. By default, pygit2 is used if available.")
 parser.add_argument('old_base', metavar="old-base", type=str,
 		    help="Old base of commits to duplicate from. "
 			"This commit has the same tree as the new_base")
@@ -103,13 +105,14 @@ import subprocess
 import sys
 
 USE_PYGIT2 = False
-try:
-	import pygit2
-	USE_PYGIT2 = True
-except ModuleNotFoundError as e:
-	if args.verbose:
-		print("Could not load pygit2 module. Using git binary as a fallback.")
-		sys.stdout.flush()
+if not args.no_pygit2:
+	try:
+		import pygit2
+		USE_PYGIT2 = True
+	except ModuleNotFoundError as e:
+		if args.verbose:
+			print("Could not load pygit2 module. Using git binary as a fallback.")
+			sys.stdout.flush()
 
 class GitBackend:
 
