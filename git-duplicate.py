@@ -162,8 +162,9 @@ class PyGit2Backend(GitBackend):
 	def duplicate_commit(self, commit: str, parents: list[str]) -> str:
 		orig_commit = self.repo.revparse_single(commit)
 		parent_commits = list(self.repo.revparse_single(parent).oid for parent in parents)
+		committer = orig_commit.committer if args.keep_committer else self.signature
 		new_commit = self.repo.create_commit(
-			None, orig_commit.author, self.signature, orig_commit.message, orig_commit.tree.oid, parents
+			None, orig_commit.author, committer, orig_commit.message, orig_commit.tree.oid, parents
 		)
 		return str(new_commit)
 
