@@ -102,6 +102,106 @@ import os
 import subprocess
 import sys
 
+class GitBackend:
+
+	def rev_parse(self, revish: str) -> str:
+		pass
+
+	def get_tree(self, commit: str) -> str:
+		pass
+
+	def get_parents(self, commit: str) -> list[str]:
+		pass
+
+	def duplicate_commit(self, commit: str, parents: list[str]) -> str:
+		pass
+
+class GitCommandBackend(GitBackend):
+
+	def remove_eol(line: str) -> str:
+		return line.rstrip("\n")
+
+	def run_git_cmd(arguments: [str]) -> tuple[str, int]:
+		"""
+		Run a git command, return it's output and exit code in a tuple
+		"""
+		git_args=["git"]
+		git_args.extend(arguments)
+		res = subprocess.run(git_args, capture_output=True)
+		return (res.returncode, res.stdout.decode(), res.stderr.decode())
+
+	def rev_parse(self, revish: str) -> str:
+		exitcode, stdout, stderr = GitCommandBackend.run_git_cmd(["rev-parse", revish])
+		if exitcode != 0:
+			raise Exception(f"Could not run rev-parse of {revish}")
+		return GitCommandBackend.remove_eol(stdout)
+
+	def rev_list(self, revish_from: str, revish_to: str) -> list[str]:
+		exit_code, raw_git_commits, error = GitCommandBackend.run_git_cmd(["rev-list", f"{args.old_base}..{args.tip}"])
+		if exit_code != 0:
+			sys.stderr.write(error)
+			sys.stderr.flush()
+			raise Exception(f"There was an error getting rev-list {revish_from}..{revish_to}")
+		return list(commit_id for commit_id in raw_git_commits.split("\n") if len(commit_id) > 0)
+
+	def get_tree(self, commit: str) -> str:
+		"""
+		Given a commit, get its tree oid
+		"""
+		try:
+			return self.rev_parse(commit + "^{tree}")
+		except:
+			raise Exception(f"Could not find tree oid for commit {commit}")
+
+	def get_parents(self, commit: str) -> list[str]:
+		parents=[]
+		n=1
+		while True:
+			try:
+				parent = self.rev_parse(f"{commit}^{n}")
+				parents.append(parent)
+			except:
+				# no more parents
+				break
+			n+=1
+		return parents
+
+	def get_commit_value(commit: str, value: str) -> str:
+		"""
+		Get a value from a commit, using pretty format from log
+		"""
+		exitcode, stdout, stderr = GitCommandBackend.run_git_cmd(["show", "--quiet", f"--pretty='{value}'", commit])
+		if exitcode != 0:
+			raise Exception(f"Error getting value from commit {commit}: {stderr}")
+		return GitCommandBackend.remove_eol(stdout) # ony the last eol is removed, in case it is multiline
+
+	def load_commit_information(commit: str) -> None:
+		"""
+		Load commit information as environment variables
+		"""
+		global args
+		os.environ["GIT_AUTHOR_NAME"] = GitCommandBackend.get_commit_value(commit, '%an')
+		os.environ["GIT_AUTHOR_EMAIL"] = GitCommandBackend.get_commit_value(commit, '%ae')
+		os.environ["GIT_AUTHOR_DATE"] = GitCommandBackend.get_commit_value(commit, '%aD')
+
+		# TODO the committer might be optionally kept from the commit
+		if args.keep_committer:
+			os.environ["GIT_COMMITTER_NAME"] = GitCommandBackend.get_commit_value(commit, '%cn')
+			os.environ["GIT_COMMITTER_EMAIL"] = GitCommandBackend.get_commit_value(commit, '%ce')
+			os.environ["GIT_COMMITTER_DATE"] = GitCommandBackend.get_commit_value(commit, '%cD')
+
+	def duplicate_commit(self, commit, parents):
+		GitCommandBackend.load_commit_information(commit)
+		ps = subprocess.Popen(("git", "show", "--quiet", "--pretty=%B", commit), stdout=subprocess.PIPE)
+		arguments = ["git", "commit-tree"]
+		for parent in parents:
+			arguments.extend(["-p", parent])
+		arguments.append(commit + "^{tree}")
+		output = subprocess.check_output(arguments, stdin=ps.stdout)
+		return GitCommandBackend.remove_eol(output.decode())
+
+
+GIT_BACKEND: GitBackend | None = GitCommandBackend()
 # list of commits to be duplicated
 GIT_COMMITS: list[str] | None = None
 TOTAL_COMMITS = 0 # total of commits that will be duplicated
@@ -116,79 +216,6 @@ ISOLATE = args.isolate
 PROGRESS: bool | None = None
 
 
-def remove_eol(line: str) -> str:
-	return line.rstrip("\n")
-
-def git_run(arguments: [str]) -> tuple[str, int]:
-	"""
-	Run a git command, return it's output and exit code in a tuple
-	"""
-	git_args=["git"]
-	git_args.extend(arguments)
-	res = subprocess.run(git_args, capture_output=True)
-	return (res.returncode, res.stdout.decode(), res.stderr.decode())
-
-def git_rev_parse(revish: str) -> str:
-	exitcode, stdout, stderr = git_run(["rev-parse", revish])
-	if exitcode != 0:
-		raise Exception(f"Could not run rev-parse of {revish}")
-	return remove_eol(stdout)
-
-def git_get_tree(commit: str) -> str:
-	"""
-	Given a commit, get its tree oid
-	"""
-	try:
-		return git_rev_parse(commit + "^{tree}")
-	except:
-		raise Exception(f"Could not find tree oid for commit {commit}")
-
-def git_get_parents(commit: str) -> list[str]:
-	parents=[]
-	n=1
-	while True:
-		try:
-			parent = git_rev_parse(f"{commit}^{n}")
-			parents.append(parent)
-		except:
-			# no more parents
-			break
-		n+=1
-	return parents
-
-def git_get_commit_value(commit: str, value: str) -> str:
-	"""
-	Get a value from a commit, using pretty format from log
-	"""
-	exitcode, stdout, stderr = git_run(["show", "--quiet", f"--pretty='{value}'", commit])
-	if exitcode != 0:
-		raise Exception(f"Error getting value from commit {commit}: {stderr}")
-	return remove_eol(stdout) # ony the last eol is removed, in case it is multiline
-
-def git_load_commit_information(commit: str) -> None:
-	"""
-	Load commit information as environment variables
-	"""
-	global args
-	os.environ["GIT_AUTHOR_NAME"] = git_get_commit_value(commit, '%an')
-	os.environ["GIT_AUTHOR_EMAIL"] = git_get_commit_value(commit, '%ae')
-	os.environ["GIT_AUTHOR_DATE"] = git_get_commit_value(commit, '%aD')
-	
-	# TODO the committer might be optionally kept from the commit
-	if args.keep_committer:
-		os.environ["GIT_COMMITTER_NAME"] = git_get_commit_value(commit, '%cn')
-		os.environ["GIT_COMMITTER_EMAIL"] = git_get_commit_value(commit, '%ce')
-		os.environ["GIT_COMMITTER_DATE"] = git_get_commit_value(commit, '%cD')
-
-def git_duplicate_commit(commit, parents):
-	git_load_commit_information(commit)
-	ps = subprocess.Popen(("git", "show", "--quiet", "--pretty=%B", commit), stdout=subprocess.PIPE)
-	arguments = ["git", "commit-tree"]
-	for parent in parents:
-		arguments.extend(["-p", parent])
-	arguments.append(commit + "^{tree}")
-	output = subprocess.check_output(arguments, stdin=ps.stdout)
-	return remove_eol(output.decode())
 
 def verify_commit(old_commit: str, new_commit: str) -> None:
 	"""
@@ -200,14 +227,19 @@ def verify_commit(old_commit: str, new_commit: str) -> None:
 	more things could be checked for thoroughness' sake (author info, message, etc)
 	but won't consider that for the time being
 	"""
-	global OLD_ROOT_COMMIT, NEW_ROOT_COMMIT, GIT_COMMITS, COMMITS_MAP, ISOLATE
+	global GIT_BACKEND
+	global OLD_ROOT_COMMIT
+	global NEW_ROOT_COMMIT
+	global GIT_COMMITS
+	global COMMITS_MAP
+	global ISOLATE
 
 	error = False
 
-	old_tree = git_get_tree(old_commit)
-	old_parents = git_get_parents(old_commit)
-	new_tree = git_get_tree(new_commit)
-	new_parents = git_get_parents(new_commit)
+	old_tree = GIT_BACKEND.get_tree(old_commit)
+	old_parents = GIT_BACKEND.get_parents(old_commit)
+	new_tree = GIT_BACKEND.get_tree(new_commit)
+	new_parents = GIT_BACKEND.get_parents(new_commit)
 
 	# trees
 	if old_tree != new_tree:
@@ -260,8 +292,8 @@ def verify_commit(old_commit: str, new_commit: str) -> None:
 							error = True
 
 				# trees have to match between the parents
-				old_parent_tree = git_get_tree(old_parent)
-				new_parent_tree = git_get_tree(new_parent)
+				old_parent_tree = GIT_BACKEND.get_tree(old_parent)
+				new_parent_tree = GIT_BACKEND.get_tree(new_parent)
 				
 				if old_parent_tree != new_parent_tree:
 					sys.stderr.write(f"BUG: inconsistency detected for a parent of new commit {new_commit}:\n")
@@ -309,6 +341,7 @@ def duplicate(commit: str, commit_count: int) -> (str, int):
 	
 	Return the new oid of the commit
 	"""
+	global GIT_BACKEND
 	global COMMITS_MAP
 	global TOTAL_COMMITS
 	global ISOLATE
@@ -322,7 +355,7 @@ def duplicate(commit: str, commit_count: int) -> (str, int):
 			return new_commit, commit_count
 
 	# get parents for said commit
-	orig_parents = git_get_parents(commit)
+	orig_parents = GIT_BACKEND.get_parents(commit)
 	# get the mapped commits for each parent
 	new_parents = []
 	for orig_parent in orig_parents:
@@ -341,7 +374,7 @@ def duplicate(commit: str, commit_count: int) -> (str, int):
 		new_parents.append(new_parent)
 
 	# now we need to create the new commit
-	new_commit = git_duplicate_commit(commit, new_parents)
+	new_commit = GIT_BACKEND.duplicate_commit(commit, new_parents)
 	COMMITS_MAP[commit] = new_commit
 	commit_count += 1
 
@@ -361,8 +394,8 @@ def duplicate(commit: str, commit_count: int) -> (str, int):
 
 ## main program starts here
 
-OLD_ROOT_COMMIT = git_rev_parse(args.old_base)
-NEW_ROOT_COMMIT = git_rev_parse(args.onto)
+OLD_ROOT_COMMIT = GIT_BACKEND.rev_parse(args.old_base)
+NEW_ROOT_COMMIT = GIT_BACKEND.rev_parse(args.onto)
 
 if args.progress:
 	PROGRESS = True
@@ -373,8 +406,8 @@ else:
 
 # let's compare the trees of the old-tip and the new-tip
 
-onto_tree=git_get_tree(args.onto)
-old_base_tree=git_get_tree(args.old_base)
+onto_tree = GIT_BACKEND.get_tree(args.onto)
+old_base_tree = GIT_BACKEND.get_tree(args.old_base)
 
 if (onto_tree != old_base_tree):
 	sys.stderr.write(f"New base tree from {args.onto}: {onto_tree}\n")
@@ -383,12 +416,7 @@ if (onto_tree != old_base_tree):
 	raise Exception("The trees of the two base commits is not the same")
 
 # let's get the list of commits that will need to be duplicated
-exit_code, raw_git_commits, error = git_run(["rev-list", f"{args.old_base}..{args.tip}"])
-if exit_code != 0:
-	sys.stderr.write(error)
-	sys.stderr.flush()
-	raise Exception("There was an error getting commits to be duplicated")
-GIT_COMMITS = list(commit_id for commit_id in raw_git_commits.split("\n") if len(commit_id) > 0)
+GIT_COMMITS = GIT_BACKEND.rev_list(args.old_base, args.tip)
 TOTAL_COMMITS = len(GIT_COMMITS)
 
 for commit in GIT_COMMITS:
