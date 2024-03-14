@@ -232,15 +232,17 @@ class GitCommandBackend(GitBackend):
 		Load commit information as environment variables
 		"""
 		global args
-		os.environ["GIT_AUTHOR_NAME"] = GitCommandBackend.get_commit_value(commit, '%an')
-		os.environ["GIT_AUTHOR_EMAIL"] = GitCommandBackend.get_commit_value(commit, '%ae')
-		os.environ["GIT_AUTHOR_DATE"] = GitCommandBackend.get_commit_value(commit, '%aD')
+		name, email, date = GitCommandBackend.get_commit_value(commit, '%an%n%ae%n%aD').split("\n")
+		os.environ["GIT_AUTHOR_NAME"] = name
+		os.environ["GIT_AUTHOR_EMAIL"] = email
+		os.environ["GIT_AUTHOR_DATE"] = date
 
 		# TODO the committer might be optionally kept from the commit
 		if args.keep_committer:
-			os.environ["GIT_COMMITTER_NAME"] = GitCommandBackend.get_commit_value(commit, '%cn')
-			os.environ["GIT_COMMITTER_EMAIL"] = GitCommandBackend.get_commit_value(commit, '%ce')
-			os.environ["GIT_COMMITTER_DATE"] = GitCommandBackend.get_commit_value(commit, '%cD')
+			name, email, date = GitCommandBackend.get_commit_value(commit, '%cn%n%ce%n%cD').split("\n")
+			os.environ["GIT_COMMITTER_NAME"] = name
+			os.environ["GIT_COMMITTER_EMAIL"] = email
+			os.environ["GIT_COMMITTER_DATE"] = date
 
 	def duplicate_commit(self, commit, parents):
 		GitCommandBackend.load_commit_information(commit)
