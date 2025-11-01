@@ -24,7 +24,7 @@ same tree (almost every rebase scenario out there, for all practical purposes),
 
 `rebase--` by default, just like `git-duplicate`, will not change your
 working tree state. It will only report the final commit id for the rebase
-you requested if the rebase is sucessful.
+you requested if the rebase is successful.
 
 # usage
 
