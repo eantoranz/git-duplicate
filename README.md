@@ -1,31 +1,3 @@
-# rebase--
-
-`git-duplicate` works under the condition that the original _"base commit"_
-and the _"onto commit"_ have the same _"tree"_. Because of that, it can be safely
-asserted that all resulting rebased commits would have the same tree as the original
-commits so no need to run the merges (and the reason why `git-duplicate` works so
-fast): Just create new commits with new metadata using the original trees, no need
-to run **any** merging operations at all and no need to move the working tree around
-while the rebase operation is taking place.
-
-This, of course, makes the usability of `git-duplicate` **too narrow** as
-there are very few rebasing scenarios where the premise about the base commits
-having the same trees holds water.
-
-Hence, it is mandatory to find ways to leverage original commits
-even if the _bases_ are not the same.
-
-I have started a tool that does just that:
-[rebase--](https://github.com/eantoranz/rebase--).
-
-If you are working on a rebase scenario where the 2 bases do not have the
-same tree (almost every rebase scenario out there, for all practical purposes),
-**please**, give it a try.
-
-`rebase--` by default, just like `git-duplicate`, will not change your
-working tree state. It will only report the final commit id for the rebase
-you requested if the rebase is successful.
-
 # usage
 
 This script can be used in cases when we want to _duplicate_
@@ -275,3 +247,31 @@ that are being duplicated as parents.
 Copyright (c) 2022-2024 Edmundo Carmona Antoranz
 
 Released under the terms of GPLv2
+
+# rebase--
+
+`git-duplicate` works under the condition that the original _"base commit"_
+and the _"onto commit"_ have the same _"tree"_. Because of that, it can be safely
+asserted that all resulting rebased commits would have the same tree as the original
+commits so no need to run the merges (and the reason why `git-duplicate` works so
+fast): Just create new commits with new metadata using the original trees, no need
+to run **any** merging operations at all and no need to move the working tree around
+while the rebase operation is taking place.
+
+This, of course, makes the usability of `git-duplicate` **too narrow** as
+there are very few rebasing scenarios where the premise about the base commits
+having the same trees holds water.
+
+Hence, it is mandatory to find ways to leverage original commits
+even if the _bases_ are not the same.
+
+I have started a tool that **intends to do** just that:
+[rebase--](https://github.com/eantoranz/rebase--).
+
+If you are working on a rebase scenario where the 2 bases do not have the
+same tree (almost every rebase scenario out there, for all practical purposes),
+**please**, give it a try.
+
+`rebase--` by default, just like `git-duplicate`, will not change your
+working tree state. It will only report the final commit id for the rebase
+you requested if the rebase is successful.
